@@ -1,0 +1,76 @@
+#!/usr/bin/perl -w
+#
+#   scrub: check files for silent corruptions.
+#   Copyright (C) 2017  Andrew Nayenko
+#
+#   This program is free software: you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation, either version 3 of the License, or
+#   (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+
+use strict;
+use POSIX qw(strftime);
+use File::Next;
+use File::stat;
+use Digest::SHA;
+use List::Util qw(max);
+
+my $verbose = 0;
+
+sub scrubdir($) {
+	my $totalsize = 0;
+	my $dir = $_[0];
+	my $dbname = $dir . '/' . strftime(".scrub-%F", localtime);
+	open my $db, '>', $dbname or die "Failed to open $dbname: $!";
+
+	my $iter = File::Next::files(
+		{file_filter => sub { !/^\.scrub/ }, sort_files => 1},
+		$dir);
+	while (my $fname = $iter->()) {
+		print "$fname\n" if $verbose >= 2;
+		my $sum = Digest::SHA->new('sha1');
+		$sum->addfile($fname);
+		my $st = stat $fname;
+		substr($fname, 0, length($dir) + 1, '')
+			if index($fname, $dir . '/') == 0;
+		# Format: sum mtime filename
+		printf $db "%s  %10d  %s\n", $sum->hexdigest, $st->mtime, $fname;
+		$totalsize += $st->size;
+	}
+
+	close $db;
+	return $totalsize;
+}
+
+my @dirs;
+foreach (@ARGV) {
+	if ($_ eq '-v') {
+		$verbose = 1;
+	} elsif ($_ eq '-vv') {
+		$verbose = 2;
+	} else {
+		push @dirs, $_;
+	}
+}
+if (@dirs == 0) {
+	print STDERR "You must specify at least one directory to check for " .
+	             "silent corruptions.\n";
+	exit 1;
+}
+
+my $totalsize = 0;
+my $starttime = time;
+$totalsize += scrubdir($_) foreach @dirs;
+my $finaltime = max(time - $starttime, 1);
+printf "Finished in %dm%02ds, average speed is %d MB/s\n",
+	$finaltime / 60, $finaltime % 60,
+	$totalsize / $finaltime / 1024 / 1024 if $verbose >= 1;
