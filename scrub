@@ -20,6 +20,7 @@
 use strict;
 use POSIX qw(strftime);
 use File::Next;
+use File::Spec;
 use File::stat;
 use Digest::SHA;
 use List::Util qw(max);
@@ -40,10 +41,9 @@ sub scrubdir($) {
 		my $sum = Digest::SHA->new('sha1');
 		$sum->addfile($fname);
 		my $st = stat $fname;
-		substr($fname, 0, length($dir) + 1, '')
-			if index($fname, $dir . '/') == 0;
 		# Format: sum mtime filename
-		printf $db "%s  %10d  %s\n", $sum->hexdigest, $st->mtime, $fname;
+		printf $db "%s  %10d  %s\n",
+			$sum->hexdigest, $st->mtime, File::Spec->abs2rel($fname, $dir);
 		$totalsize += $st->size;
 	}
 
